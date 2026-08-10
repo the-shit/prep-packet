@@ -1,0 +1,189 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://the-shit.dev/schemas/prep-packet/v1.json",
+    "title": "Prep packet v1",
+    "description": "What the intake engine hands the output engine. raw_ref is a pointer; the raw body never travels in this document.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "schema_version",
+        "intake_id",
+        "canonical_message",
+        "confidence",
+        "raw_ref"
+    ],
+    "properties": {
+        "schema_version": {
+            "description": "Contract version. Consumers reject anything they do not pin.",
+            "const": "1.0.0"
+        },
+        "intake_id": {
+            "description": "Trace id for the turn. Doubles as the observability trace id so intake, routes, handoff and reply are one trace.",
+            "$ref": "#/$defs/token"
+        },
+        "canonical_message": {
+            "description": "The cleaned ask — what the output engine actually answers. Never the raw body.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
+        },
+        "confidence": {
+            "$ref": "#/$defs/confidence"
+        },
+        "key_facts": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/keyFact" },
+            "default": []
+        },
+        "routes_fired": {
+            "description": "Work intake already did, so the output engine does not re-run it.",
+            "type": "array",
+            "items": { "$ref": "#/$defs/routeReceipt" },
+            "default": []
+        },
+        "open_questions": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/openQuestion" },
+            "default": []
+        },
+        "health_ops_flags": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/healthOpsFlag" },
+            "default": []
+        },
+        "relevance": {
+            "$ref": "#/$defs/relevance"
+        },
+        "raw_ref": {
+            "$ref": "#/$defs/rawRef"
+        }
+    },
+    "$defs": {
+        "token": {
+            "description": "An opaque pointer. No whitespace, bounded length — a raw body cannot be spelled in this charset.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": "^[A-Za-z0-9\\-_.:@/+=~#]+$"
+        },
+        "ratio": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+        },
+        "rawRef": {
+            "description": "WHERE the raw input lives — never the raw input. There is deliberately no field here that could hold a body; digest and byte_size let a consumer reason about the raw without ever receiving it.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["store", "id"],
+            "properties": {
+                "store": { "$ref": "#/$defs/token" },
+                "id": { "$ref": "#/$defs/token" },
+                "uri": { "type": ["string", "null"], "maxLength": 2048, "pattern": "^\\S*$" },
+                "digest": { "oneOf": [{ "$ref": "#/$defs/token" }, { "type": "null" }] },
+                "byte_size": { "type": ["integer", "null"], "minimum": 0 },
+                "captured_at": { "oneOf": [{ "$ref": "#/$defs/token" }, { "type": "null" }] }
+            }
+        },
+        "confidence": {
+            "description": "The packet's assessment of itself, so a weak packet can say so instead of being answered fluently and wrongly.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["level"],
+            "properties": {
+                "level": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low", "unusable"]
+                },
+                "score": {
+                    "oneOf": [{ "$ref": "#/$defs/ratio" }, { "type": "null" }]
+                },
+                "reasons": {
+                    "description": "Required whenever level is not `high`: an unexplained low confidence gives downstream nothing to check.",
+                    "type": "array",
+                    "items": { "type": "string", "minLength": 1 },
+                    "default": []
+                }
+            },
+            "allOf": [
+                {
+                    "if": {
+                        "properties": { "level": { "enum": ["medium", "low", "unusable"] } },
+                        "required": ["level"]
+                    },
+                    "then": {
+                        "properties": { "reasons": { "minItems": 1 } },
+                        "required": ["reasons"]
+                    }
+                }
+            ]
+        },
+        "keyFact": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["statement"],
+            "properties": {
+                "statement": { "type": "string", "minLength": 1, "maxLength": 4000 },
+                "source_ref": { "oneOf": [{ "$ref": "#/$defs/token" }, { "type": "null" }] },
+                "confidence": { "oneOf": [{ "$ref": "#/$defs/ratio" }, { "type": "null" }] }
+            }
+        },
+        "routeReceipt": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["route", "status"],
+            "properties": {
+                "route": { "$ref": "#/$defs/token" },
+                "status": {
+                    "type": "string",
+                    "enum": ["succeeded", "failed", "skipped", "timed_out", "partial"]
+                },
+                "summary": { "type": ["string", "null"], "maxLength": 4000 },
+                "ref": { "oneOf": [{ "$ref": "#/$defs/token" }, { "type": "null" }] },
+                "duration_ms": { "type": ["integer", "null"], "minimum": 0 }
+            }
+        },
+        "openQuestion": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["question"],
+            "properties": {
+                "question": { "type": "string", "minLength": 1, "maxLength": 4000 },
+                "audience": {
+                    "type": "string",
+                    "enum": ["output", "human"],
+                    "default": "output"
+                },
+                "blocking": {
+                    "description": "Answering without this produces a confidently wrong reply.",
+                    "type": "boolean",
+                    "default": false
+                }
+            }
+        },
+        "healthOpsFlag": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["flag"],
+            "properties": {
+                "flag": { "$ref": "#/$defs/token" },
+                "severity": {
+                    "type": "string",
+                    "enum": ["info", "warning", "critical"],
+                    "default": "warning"
+                },
+                "detail": { "type": ["string", "null"], "maxLength": 4000 },
+                "ref": { "oneOf": [{ "$ref": "#/$defs/token" }, { "type": "null" }] }
+            }
+        },
+        "relevance": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "issues": { "type": "array", "items": { "$ref": "#/$defs/token" }, "default": [] },
+                "projects": { "type": "array", "items": { "$ref": "#/$defs/token" }, "default": [] },
+                "people": { "type": "array", "items": { "$ref": "#/$defs/token" }, "default": [] }
+            }
+        }
+    }
+}

@@ -1,0 +1,45 @@
+{
+    "name": "the-shit/prep-packet",
+    "description": "The contract between intake and output: what Asgard hands Lexi, and structurally never the raw body. Immutable typed packet plus a versioned JSON Schema both sides validate against.",
+    "type": "library",
+    "license": "proprietary",
+    "keywords": [
+        "prep-packet",
+        "contract",
+        "schema",
+        "intake",
+        "asgard",
+        "lexi"
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "require-dev": {
+        "laravel/pint": "^1.20",
+        "pestphp/pest": "^4.0|^5.0",
+        "phpstan/phpstan": "^2.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "TheShit\\PrepPacket\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "TheShit\\PrepPacket\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "lint": "pint",
+        "analyse": "phpstan analyse",
+        "test": "pest"
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
