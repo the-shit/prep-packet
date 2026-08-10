@@ -8,11 +8,32 @@ Per [Asgard#17](https://github.com/jordanpartridge/Asgard/issues/17), serving th
 
 ## Install
 
-```bash
-composer require the-shit/prep-packet
+The repo is public, but it is **not registered on Packagist**, so a bare `composer require` will not resolve it. Add the VCS repository first — this is the whole install, for Asgard (intake), Lexi (output), or anything else:
+
+```json
+{
+    "repositories": [
+        { "type": "vcs", "url": "https://github.com/the-shit/prep-packet" }
+    ]
+}
 ```
 
-Public on purpose: the packet carries no secrets, and public avoids the private-registry question entirely.
+```bash
+composer require the-shit/prep-packet:^0.1
+```
+
+Public on purpose: the packet carries no secrets, and public avoids the private-registry question entirely. Registering on Packagist would make the bare `composer require` work and is a one-line decision — it just has not been made yet.
+
+Nothing to publish, no service provider, no config. It is a value object and a schema; `use` it and go.
+
+### Verifying the install
+
+```bash
+php -r 'require "vendor/autoload.php"; echo TheShit\PrepPacket\Schema::VERSION;'
+# 1.0.0
+```
+
+Pin against `Schema::VERSION` on both sides. A packet declaring a different version is rejected rather than parsed optimistically, which is the point — see [Versioning](#versioning).
 
 ## The shape
 
@@ -120,23 +141,50 @@ The PHP type is the enforcing implementation; the JSON Schema is the language-ne
 
 Not a parallel correlation scheme. The same id is the observability trace id and the packet key, so one turn — raw intake, routes fired, packet handoff, the reply — is a single trace spanning both apps rather than two log streams to reconcile.
 
-## Producing one
+## For intake (Asgard): producing a packet
+
+Intake is the only side that constructs one. Build it with the typed constructor so the contract validates at the point of creation, not at the point of handoff:
 
 ```php
-use TheShit\PrepPacket\Data\{Confidence, KeyFact, RawRef, RouteReceipt};
-use TheShit\PrepPacket\Enums\RouteStatus;
+use TheShit\PrepPacket\PrepPacket;
+use TheShit\PrepPacket\Data\{Confidence, KeyFact, OpenQuestion, RawRef, RouteReceipt};
+use TheShit\PrepPacket\Enums\{QuestionAudience, RouteStatus};
 
 $packet = new PrepPacket(
-    intakeId: $traceId,
-    canonicalMessage: 'Summarise what changed in the deploy pipeline this week.',
-    confidence: Confidence::medium(['The GitHub route timed out; issue links may be incomplete.']),
-    rawRef: new RawRef(store: 'bifrost', id: 'webhook_call:91827', byteSize: 184),
+    intakeId: $traceId,                    // same id you hand the tracer
+    canonicalMessage: $cleanedAsk,         // never the raw body
+    confidence: Confidence::medium(['GitHub route timed out; issue links may be incomplete.']),
+    rawRef: new RawRef(store: 'bifrost', id: "webhook_call:{$call->id}", byteSize: $call->size),
     keyFacts: [new KeyFact('The pipeline moved to Docker on 2026-08-07.', sourceRef: 'gh:Asgard#22')],
     routesFired: [new RouteReceipt('github.issues.search', RouteStatus::TimedOut)],
+    openQuestions: [new OpenQuestion('Which environment?', QuestionAudience::Human, blocking: true)],
 );
 
-$json = $packet->toJson();
+$wire = $packet->toJson();
 ```
+
+Four things intake must get right, each enforced:
+
+1. **`rawRef` is a pointer.** Put the archive id there, never the body. The type rejects anything whitespace-bearing, so this fails at construction rather than at the boundary.
+2. **`intakeId` is the trace id**, not a second correlation scheme. Same id in the tracer, the packet, and the official record.
+3. **Be honest in `confidence`.** A reason is mandatory below `high`. Half-understood asks must say so — the output engine has no raw to check against and will otherwise answer fluently and wrongly.
+4. **Never emit a thin packet.** If intake could not make sense of the input, emit `Confidence::unusable([...])` with reasons. An empty packet throws.
+
+## For output (Lexi): consuming one
+
+```php
+$packet = PrepPacket::fromJson($request->getContent());   // throws InvalidPrepPacket on anything wrong
+
+if ($packet->shouldDegrade()) {
+    // ask rather than answer — low/unusable confidence, or a blocking question
+}
+
+foreach ($packet->urgentFlags() as $flag) { /* must be surfaced, not just noted */ }
+
+$answer = $this->respond($packet->canonicalMessage, $packet->keyFacts);
+```
+
+Catch `InvalidPrepPacket` and treat it as a failed handoff. Do not fall back to raw on a parse failure — that is the silent-degrade path #16 exists to close.
 
 ## Quality
 
