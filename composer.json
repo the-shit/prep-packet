@@ -2,7 +2,7 @@
     "name": "the-shit/prep-packet",
     "description": "The contract between intake and output: what Asgard hands Lexi, and structurally never the raw body. Immutable typed packet plus a versioned JSON Schema both sides validate against.",
     "type": "library",
-    "license": "proprietary",
+    "license": "MIT",
     "keywords": [
         "prep-packet",
         "contract",
